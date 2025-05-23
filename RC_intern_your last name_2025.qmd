@@ -1,0 +1,220 @@
+---
+title: "IIM-A Research Intern Assessment"
+author: "Pranish Shinde"
+format: html
+editor: visual
+---
+
+# Step 1: Load the data
+
+```{r}
+# Load necessary libraries
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(MASS)
+library(fitdistrplus)
+library(broom)
+library(moments)
+library(stargazer)
+library(knitr)
+library(stats4)
+
+
+# Step 1: Load the data
+data <- read.csv("C:/Users/Administrator/Downloads/data_income_consumption_gender.xlsx - Data Task_Intern.csv", header = FALSE)
+colnames(data) <- c("Income", "Consumption", "Gender")
+
+view(data)
+```
+
+# Step 2: Summary statistics
+
+```{r}
+# Step 2: Summary statistics
+summary_stats <- data %>%
+  summarise(
+    Income_Mean = mean(Income, na.rm = TRUE),
+    Income_Median = median(Income, na.rm = TRUE),
+    Income_SD = sd(Income, na.rm = TRUE),
+    Income_Min = min(Income, na.rm = TRUE),
+    Income_Max = max(Income, na.rm = TRUE),
+    
+    Consumption_Mean = mean(Consumption, na.rm = TRUE),
+    Consumption_Median = median(Consumption, na.rm = TRUE),
+    Consumption_SD = sd(Consumption, na.rm = TRUE),
+    Consumption_Min = min(Consumption, na.rm = TRUE),
+    Consumption_Max = max(Consumption, na.rm = TRUE),
+    
+    Male_Proportion = mean(Gender == 1, na.rm = TRUE)
+  )
+
+print(summary_stats)
+
+# Create a more detailed summary table by gender
+summary_by_gender <- data %>%
+  group_by(Gender) %>%
+  summarise(
+    Count = n(),
+    Income_Mean = mean(Income, na.rm = TRUE),
+    Income_SD = sd(Income, na.rm = TRUE),
+    Consumption_Mean = mean(Consumption, na.rm = TRUE),
+    Consumption_SD = sd(Consumption, na.rm = TRUE)
+  )
+
+print(summary_by_gender)
+view(summary_by_gender)
+
+```
+
+# Step 3: Plot normalized histogram of income
+
+```{r}
+# Step 3: Plot normalized histogram of income
+# Calculate the bin width using Freedman-Diaconis rule
+bin_width <- 2 * IQR(data$Income) / (length(data$Income)^(1/3))
+num_bins <- ceiling((max(data$Income) - min(data$Income)) / bin_width)
+
+# Create the histogram
+hist_data <- hist(data$Income, breaks = num_bins, plot = FALSE)
+hist_data$density <- hist_data$counts / sum(hist_data$counts)
+
+# Plot the normalized histogram
+pdf("income_histogram.pdf", width = 10, height = 6)
+plot(hist_data, freq = FALSE, 
+     main = "Normalized Histogram of Income",
+     xlab = "Income",
+     ylab = "Density",
+     col = "lightblue1",
+     prob = TRUE)  # This normalises the histogram
+dev.off()
+
+ggplot(data = data, aes(x = Income)) +
+  geom_histogram(bins = 30, fill = "lightblue1", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Income", x = "Income", y = "Frequency") +
+  theme_minimal()
+
+
+ggplot(data = data, aes(x = Income)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "lightblue1", color = "black", alpha = 0.7) +
+  labs(title = "Normalized Histogram of Income", x = "Income", y = "Density") +
+  theme_minimal()
+```
+
+# Step 4: Fit distributions to the income data
+
+```{r}
+# Step 4: Fit distributions to the income data
+# Remove zeros or negative values if any for fitting
+
+df<-data
+df<-data |>
+  rename(income=Income,consumption=Consumption,gender=Gender)
+view(df)
+
+
+# Read the data
+income_data <- df
+
+# Basic exploration
+summary(income_data$income)
+hist(income_data$income, breaks=50, probability=TRUE, 
+     main="Distribution of Income", xlab="Income")
+
+# Remove zero incomes if any
+income_positive <- income_data$income[income_data$income > 0]
+
+# Fit distributions using Maximum Likelihood Estimation
+# Fit lognormal distribution
+lnorm_fit <- fitdist(income_positive, "lnorm")
+
+# Fit gamma distribution
+gamma_fit <- fitdist(income_positive, "gamma")
+
+# Compare the fits
+par(mfrow=c(2,2))
+
+# 1. Density Plot
+plot(lnorm_fit)
+plot(gamma_fit)
+
+# Reset plotting parameters
+par(mfrow=c(1,1))
+
+# Plot the fitted distributions against the empirical density
+hist(income_positive, breaks=50, probability=TRUE, 
+     main="Income Distribution with Fitted Models", 
+     xlab="Income", ylim=c(0, max(density(income_positive)$y)*1.1))
+
+# Add density curves
+x_seq <- seq(min(income_positive), max(income_positive), length.out=1000)
+
+# Add lognormal density
+lnorm_density <- dlnorm(x_seq, meanlog=lnorm_fit$estimate[1], sdlog=lnorm_fit$estimate[2])
+lines(x_seq, lnorm_density, col="blue", lwd=2)
+
+# Add gamma density
+gamma_density <- dgamma(x_seq, shape=gamma_fit$estimate[1], rate=gamma_fit$estimate[2])
+lines(x_seq, gamma_density, col="red", lwd=2)
+
+# Add legend
+legend("topright", legend=c("Lognormal", "Gamma"), 
+       col=c("blue", "red"), lwd=2)
+
+# Compute goodness-of-fit statistics
+lnorm_gof <- gofstat(lnorm_fit)
+gamma_gof <- gofstat(gamma_fit)
+
+# Print AIC and BIC
+cat("Lognormal AIC:", lnorm_fit$aic, "\n")
+cat("Gamma AIC:", gamma_fit$aic, "\n")
+cat("Lognormal BIC:", lnorm_fit$bic, "\n")
+cat("Gamma BIC:", gamma_fit$bic, "\n")
+
+# Calculate and print the Kolmogorov-Smirnov statistics
+cat("Lognormal Kolmogorov-Smirnov statistic:", lnorm_gof$ks, "\n")
+cat("Gamma Kolmogorov-Smirnov statistic:", gamma_gof$ks, "\n")
+
+# Print the Anderson-Darling statistics
+cat("Lognormal Anderson-Darling statistic:", lnorm_gof$ad, "\n")
+cat("Gamma Anderson-Darling statistic:", gamma_gof$ad, "\n")
+
+# Q-Q plots for visual comparison
+par(mfrow=c(1,2))
+qqcomp(lnorm_fit, main="Lognormal Q-Q Plot")
+qqcomp(gamma_fit, main="Gamma Q-Q Plot")
+
+# P-P plots for visual comparison
+par(mfrow=c(1,2))
+ppcomp(lnorm_fit, main="Lognormal P-P Plot")
+ppcomp(gamma_fit, main="Gamma P-P Plot")
+
+# Compare the empirical CDF with the theoretical CDF
+par(mfrow=c(1,2))
+cdfcomp(list(lnorm_fit, gamma_fit), legendtext=c("Lognormal", "Gamma"))
+cdfcomp(list(lnorm_fit, gamma_fit), legendtext=c("Lognormal", "Gamma"), 
+        xlogscale=TRUE, main="CDF Comparison (Log Scale)")
+
+# Reset plot parameters
+par(mfrow=c(1,1))
+```
+
+# Step 5: Estimating MPC
+
+```{r}
+# Step 5: Estimating MPC
+# Run regression (consumption ~ income + gender)
+
+model <- lm(consumption ~ income + gender, data = df)
+summary(model)
+
+mpc <- coef(model)["income"]
+cat("Estimated MPC (Income coefficient):", mpc, "\n") 
+# On average-- males have a consumption level that is 4912.594 units higher than females, holding income constant.(male=1, female = 0)
+
+gender_coef <- coef(model)["gender"]
+cat("Estimated Gender coefficient:", gender_coef, "\n") 
+# means that, on average, for every additional unit of income, consumption increases by about 59.3% of that amount
+```
+
+
